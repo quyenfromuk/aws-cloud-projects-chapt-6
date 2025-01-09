@@ -2,6 +2,7 @@ provider "aws" {
   region = "eu-west-2"
 }
 
+# S3 Buckets
 resource "aws_s3_bucket" "english-bucket" {
   bucket = var.en_bucket_name
 }
@@ -10,35 +11,36 @@ resource "aws_s3_bucket" "spanish-bucket" {
   bucket = var.es_bucket_name
 }
 
+# S3 Objects for English and Spanish
 resource "aws_s3_object" "en_html_upload" {
-  bucket = aws_s3_bucket.english-bucket.bucket
-  key    = "index.html"
-  source = "ch2-files/index.html"
+  bucket       = aws_s3_bucket.english-bucket.bucket
+  key          = "index.html"
+  source       = "ch2-files/index.html"
   content_type = "text/html"
 }
 
 resource "aws_s3_object" "en_css_upload" {
-  bucket = aws_s3_bucket.english-bucket.bucket
-  key    = "index.css"
-  source = "ch2-files/index.css"
+  bucket       = aws_s3_bucket.english-bucket.bucket
+  key          = "index.css"
+  source       = "ch2-files/index.css"
   content_type = "text/css"
 }
 
 resource "aws_s3_object" "es_html_upload" {
-  bucket = aws_s3_bucket.spanish-bucket.bucket
-  key    = "index.html"
-  source = "ch2-files/index.html"
+  bucket       = aws_s3_bucket.spanish-bucket.bucket
+  key          = "index.html"
+  source       = "ch2-files/index.html"
   content_type = "text/html"
 }
 
 resource "aws_s3_object" "es_css_upload" {
-  bucket = aws_s3_bucket.spanish-bucket.bucket
-  key    = "index.css"
-  source = "ch2-files/index.css"
+  bucket       = aws_s3_bucket.spanish-bucket.bucket
+  key          = "index.css"
+  source       = "ch2-files/index.css"
   content_type = "text/css"
 }
 
-
+# CloudFront Origin Access Control
 resource "aws_cloudfront_origin_access_control" "oac" {
   name                              = "s3-cloudfront-oac"
   description                       = "Access to S3 bucket"
@@ -51,6 +53,7 @@ locals {
   s3_origin_id = "myS3Origin"
 }
 
+# CloudFront Distribution
 resource "aws_cloudfront_distribution" "s3_distribution" {
   origin {
     domain_name              = aws_s3_bucket.english-bucket.bucket_regional_domain_name
@@ -99,6 +102,7 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
   }
 }
 
+# S3 Bucket Policies
 resource "aws_s3_bucket_policy" "english-policy" {
   bucket = aws_s3_bucket.english-bucket.id
   policy = data.aws_iam_policy_document.cloudfront_oac_access_english.json
@@ -155,65 +159,68 @@ data "aws_iam_policy_document" "cloudfront_oac_access_spanish" {
   }
 }
 
+# IAM Role for Lambda
 resource "aws_iam_role" "lambda_role" {
-    name   = "Detection_Lambda_Function_Role"
-    assume_role_policy = <<EOF
+  name   = "Detection_Lambda_Function_Role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
-    "Version": "2012-10-17",
-    "Statement": [
-    {
-        "Action": "sts:AssumeRole",
-        "Principal": {
+      "Action": "sts:AssumeRole",
+      "Principal": {
         "Service": ["lambda.amazonaws.com", "edgelambda.amazonaws.com"]
-        },
-        "Effect": "Allow",
-        "Sid": ""
+      },
+      "Effect": "Allow",
+      "Sid": ""
     }
-    ]
-    }
-    EOF
+  ]
+}
+EOF
 }
 
+# IAM Policy for Lambda
 resource "aws_iam_policy" "iam_policy_for_lambda" {
- 
-    name         = "aws_iam_policy_for_terraform_aws_lambda_role"
-    path         = "/"
-    description  = "AWS IAM Policy for lambda role"
-    policy = <<EOF
+  name         = "aws_iam_policy_for_terraform_aws_lambda_role"
+  path         = "/"
+  description  = "AWS IAM Policy for lambda role"
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
-    "Version": "2012-10-17",
-    "Statement": [
-    {
-        "Action": [
+      "Action": [
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents"
-        ],
-        "Resource": "arn:aws:logs:*:*:*",
-        "Effect": "Allow"
+      ],
+      "Resource": "arn:aws:logs:*:*:*",
+      "Effect": "Allow"
     }
-    ]
-    }
-    EOF
+  ]
+}
+EOF
 }
 
+# Attach IAM Policy to Lambda Role
 resource "aws_iam_role_policy_attachment" "attach_iam_policy_to_iam_role" {
-    role        = aws_iam_role.lambda_role.name
-    policy_arn  = aws_iam_policy.iam_policy_for_lambda.arn
+  role        = aws_iam_role.lambda_role.name
+  policy_arn  = aws_iam_policy.iam_policy_for_lambda.arn
 }
 
+# Lambda Function
 data "archive_file" "zip_the_python_code" {
-    type        = "zip"
-    source_file  = "${path.module}/lambda/lambda.py"
-    output_path = "${path.module}/lambda/lambda.zip"
+  type        = "zip"
+  source_file  = "${path.module}/lambda/lambda.py"
+  output_path = "${path.module}/lambda/lambda.zip"
 }
 
 resource "aws_lambda_function" "terraform_lambda_func" {
-    filename                       = "${path.module}/lambda/lambda.zip"
-    function_name                  = "origin-function"
-    role                           = aws_iam_role.lambda_role.arn
-    handler                        = "lambda.handler"
-    runtime                        = "python3.12"
-    depends_on                     = [aws_iam_role_policy_attachment.attach_iam_policy_to_iam_role]
-    publish  = true
+  filename                       = "${path.module}/lambda/lambda.zip"
+  function_name                  = "origin-function"
+  role                           = aws_iam_role.lambda_role.arn
+  handler                        = "lambda.handler"
+  runtime                        = "python3.12"
+  depends_on                     = [aws_iam_role_policy_attachment.attach_iam_policy_to_iam_role]
+  publish  = true
 }
